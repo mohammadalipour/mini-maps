@@ -10,6 +10,8 @@ export interface Config {
   manifestCacheTtlMs: number;
   mapboxAccessToken?: string;
   defaultTileset?: string;
+  /** CloudWatch namespace for request metrics; unset disables publishing (local dev). */
+  metricsNamespace?: string;
   tileStore: TileStoreConfig;
   /** Set when DB_HOST is set. caFile is read by the server when DB_SSLMODE is not "disable". */
   database?: Omit<DatabaseConfig, 'ca'> & { caFile?: string };
@@ -24,6 +26,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     manifestCacheTtlMs: Number(env.MANIFEST_CACHE_TTL_MS ?? 30_000),
     mapboxAccessToken: env.MAPBOX_ACCESS_TOKEN,
     defaultTileset: env.DEFAULT_TILESET,
+    metricsNamespace: env.METRICS_NAMESPACE,
     tileStore: loadTileStoreConfig(env),
     database: loadDatabaseConfig(env),
   };

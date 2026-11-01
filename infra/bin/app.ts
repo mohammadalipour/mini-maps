@@ -40,6 +40,7 @@ new ApiStack(app, 'MiniMaps-Api', {
   vpc: network.vpc,
   tilesBucket: storage.tilesBucket,
   database,
+  alertEmail: app.node.tryGetContext('alertEmail'),
 });
 
 Tags.of(app).add('project', 'mini-maps');

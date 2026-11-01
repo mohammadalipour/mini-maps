@@ -1,5 +1,6 @@
 import Fastify, { type FastifyError, type FastifyServerOptions } from 'fastify';
 import { type FeatureStore, parseBbox } from './features/feature-store.js';
+import { type RequestMetrics, routeLabel } from './metrics/request-metrics.js';
 import type { TileStore, TilesetManifest } from './tiles/tile-store.js';
 import { TtlCache } from './ttl-cache.js';
 import { viewerHtml } from './viewer.js';
@@ -23,6 +24,8 @@ export interface AppOptions {
   tileStore: TileStore;
   /** PostGIS-backed bbox queries; the endpoint answers 503 when not configured. */
   featureStore?: FeatureStore;
+  /** Per-route latency/requests/5xx, published to CloudWatch by MetricsPublisher. */
+  metrics?: RequestMetrics;
   /** Base URL clients use to reach the API (the CloudFront domain in AWS). */
   publicBaseUrl?: string;
   manifestCacheTtlMs?: number;
@@ -35,6 +38,7 @@ export interface AppOptions {
 export function buildApp({
   tileStore,
   featureStore,
+  metrics,
   publicBaseUrl,
   manifestCacheTtlMs = 30_000,
   mapboxAccessToken,
@@ -50,6 +54,13 @@ export function buildApp({
   const getManifest = (tilesetId: string) => manifests.getOrLoad(tilesetId, () => tileStore.getManifest(tilesetId));
 
   app.addHook('onClose', async () => featureStore?.close());
+
+  if (metrics) {
+    app.addHook('onResponse', async (req, reply) => {
+      const route = routeLabel(req.routeOptions.url);
+      if (route) metrics.record(route, reply.statusCode, reply.elapsedTime);
+    });
+  }
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;

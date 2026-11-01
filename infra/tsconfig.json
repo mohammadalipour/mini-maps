@@ -11,5 +11,5 @@
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["bin", "lib", "test"]
+  "include": ["bin", "lib", "test", "vitest.config.ts"]
 }

@@ -15,6 +15,7 @@
     "seed:local": "tsx scripts/seed-tiles.ts --input ../../data/sample/berlin-landmarks.geojson --tileset berlin-landmarks --layer landmarks --out ../../.local-tiles"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1161.0",
     "@aws-sdk/client-s3": "^3.1161.0",
     "fastify": "^5.12.7",
     "pg": "^8.23.1"

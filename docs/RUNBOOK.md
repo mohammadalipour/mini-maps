@@ -29,6 +29,26 @@ aws stepfunctions start-execution --state-machine-arn <StateMachineArn> \
   --input '{"bucket":"<RawBucketName>","key":"uploads/<id>.geojson","time":"<original time>"}'
 ```
 
+## API alarms (`MiniMaps-Api` dashboard in CloudWatch)
+
+Start on the **MiniMaps-Api** dashboard. It shows CloudFront, the ALB, per-route API metrics and ECS side by side, so you can see quickly which layer is affected.
+
+### `NoHealthyTasks`: no healthy API task behind the load balancer
+**Impact:** requests that miss the CloudFront cache fail with 502/503. Cached tiles keep working for up to a year, and TileJSON for up to 60 s.
+1. ECS console → `MiniMaps-Api` service → **Events**. Look for failing health checks, image pull errors or `CannotPullContainerError`.
+2. Check the `/api` log stream for crashes at start-up (for example a missing environment variable, or a database that can't be reached).
+3. If a deploy caused it, the deployment circuit breaker rolls back automatically. Otherwise, redeploy the last good commit.
+
+### `HighErrorRate`: 5xx above 1%
+1. On the dashboard, find which **route** has the errors (`API: requests by route`) and whether they come from the ALB (no healthy task) or from the targets (app errors).
+2. Search the logs: `fields @timestamp, msg, err.message | filter level >= 50 | sort @timestamp desc` (CloudWatch Logs Insights, `/api` log group).
+3. Common causes: S3 permissions (403 from S3 becomes 500), the database is unreachable or timing out (`/features` only), or a bad deploy.
+
+### `HighLatency`: p99 above 500 ms
+1. Is it every route or one? `features` hits PostGIS (2 s statement timeout); `tiles` and `tilejson` hit S3.
+2. ECS CPU above 80%? Autoscaling adds tasks up to 3. If it is already at 3, raise `maxCapacity`.
+3. A cold manifest cache causes a short spike after a deploy. Ignore it if latency recovers within a few minutes.
+
 ## Roll back a tileset
 Every old version is still in S3. Point the manifest back at the previous version:
 ```bash

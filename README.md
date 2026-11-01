@@ -30,6 +30,7 @@ Design decisions are recorded in [docs/adr](docs/adr):
 - [0004](docs/adr/0004-stacks-split-by-cost.md) Stacks split by cost profile
 - [0005](docs/adr/0005-tile-pipeline.md) Tile pipeline on Step Functions, Lambda and ECS
 - [0006](docs/adr/0006-postgis-feature-queries.md) PostGIS on RDS for bbox feature queries
+- [0007](docs/adr/0007-api-observability.md) API observability: ALB alarms, per-route metrics, dashboard
 
 When an alert fires, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
@@ -120,7 +121,7 @@ cd infra && npx cdk destroy MiniMaps-Api
 | Storage (S3, small data) | cents |
 | Pipeline (Step Functions, Lambda, SNS, 1 alarm; Fargate per run) | ~$0 idle, < $0.01 per run |
 | Database (RDS t4g.micro, 20 GB, secret), optional | ~$15 |
-| Api (ALB + 1 Fargate ARM task 0.25 vCPU + 1 public IP) | ~$30 |
+| Api (ALB + 1 Fargate ARM task 0.25 vCPU + 1 public IP; 3 alarms, dashboard, ~12 custom metrics) | ~$30 |
 
 There is no NAT gateway. Destroying `MiniMaps-Api` when it is not in use keeps the total to a few dollars.
 
@@ -130,7 +131,7 @@ There is no NAT gateway. Destroying `MiniMaps-Api` when it is not in use keeps t
 - [x] Tile API with versioned, immutable URLs; unit and infrastructure tests; CI
 - [x] Step Functions ETL: Python Lambdas + tippecanoe ECS task, SNS alerts, alarm, runbook
 - [x] RDS Postgres/PostGIS: features per version + `GET /v1/tilesets/{id}/features?bbox=`
-- [ ] CloudWatch: API EMF metrics, dashboard, latency/5xx alarms
+- [x] CloudWatch: per-route API metrics, `MiniMaps-Api` dashboard, latency / 5xx / health alarms → SNS
 - [ ] GitHub Actions deploy with OIDC (no long-lived AWS keys)
 - [ ] k6 load test and results
 - [x] Map viewer page (Mapbox GL JS v3, Standard style, tile boundaries toggle)

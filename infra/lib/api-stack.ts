@@ -6,9 +6,11 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
+import { ApiMonitoring } from './api-monitoring';
 import type { DatabaseStack } from './database-stack';
 
 export interface ApiStackProps extends StackProps {
@@ -16,9 +18,12 @@ export interface ApiStackProps extends StackProps {
   readonly tilesBucket: s3.IBucket;
   /** When set, the API serves bbox feature queries from PostGIS. */
   readonly database?: DatabaseStack;
+  /** Optional email for API alarms. */
+  readonly alertEmail?: string;
 }
 
 const CONTAINER_PORT = 3000;
+const METRICS_NAMESPACE = 'MiniMaps/Api';
 
 /**
  * Read path: CloudFront -> (VPC origin) -> internal ALB -> Fargate (Node.js) -> S3.
@@ -93,6 +98,7 @@ export class ApiStack extends Stack {
         TILE_STORE: 's3',
         TILES_BUCKET: tilesBucket.bucketName,
         PUBLIC_BASE_URL: publicBaseUrl,
+        METRICS_NAMESPACE,
         ...db?.environment,
       },
       secrets: db?.secrets,
@@ -105,6 +111,13 @@ export class ApiStack extends Stack {
       }),
     });
     tilesBucket.grantRead(taskDefinition.taskRole);
+    taskDefinition.taskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['cloudwatch:PutMetricData'],
+        resources: ['*'], // PutMetricData has no resource ARNs; scoped by namespace instead
+        conditions: { StringEquals: { 'cloudwatch:namespace': METRICS_NAMESPACE } },
+      }),
+    );
 
     const service = new ecs.FargateService(this, 'Service', {
       cluster,
@@ -121,7 +134,7 @@ export class ApiStack extends Stack {
     props.database?.allowConnectionsFrom(this, 'PostgresFromApi', service.connections.securityGroups[0]!, 'API reads features');
 
     const listener = alb.addListener('Http', { port: 80, open: false });
-    listener.addTargets('Api', {
+    const targetGroup = listener.addTargets('Api', {
       port: CONTAINER_PORT,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [service],
@@ -136,6 +149,15 @@ export class ApiStack extends Stack {
     service
       .autoScaleTaskCount({ minCapacity: 1, maxCapacity: 3 })
       .scaleOnCpuUtilization('Cpu', { targetUtilizationPercent: 60 });
+
+    new ApiMonitoring(this, 'Monitoring', {
+      alb,
+      targetGroup,
+      service,
+      distribution,
+      metricsNamespace: METRICS_NAMESPACE,
+      alertEmail: props.alertEmail,
+    });
 
     new CfnOutput(this, 'ApiUrl', { value: publicBaseUrl });
   }
