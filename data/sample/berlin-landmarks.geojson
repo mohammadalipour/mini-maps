@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "name": "Brandenburger Tor", "kind": "landmark" }, "geometry": { "type": "Point", "coordinates": [13.3777, 52.5163] } },
+    { "type": "Feature", "properties": { "name": "Reichstagsgebäude", "kind": "landmark" }, "geometry": { "type": "Point", "coordinates": [13.3761, 52.5186] } },
+    { "type": "Feature", "properties": { "name": "Fernsehturm", "kind": "landmark" }, "geometry": { "type": "Point", "coordinates": [13.4094, 52.5208] } },
+    { "type": "Feature", "properties": { "name": "Museumsinsel", "kind": "landmark" }, "geometry": { "type": "Point", "coordinates": [13.3977, 52.5211] } },
+    { "type": "Feature", "properties": { "name": "Gendarmenmarkt", "kind": "landmark" }, "geometry": { "type": "Point", "coordinates": [13.3928, 52.5137] } },
+    { "type": "Feature", "properties": { "name": "Checkpoint Charlie", "kind": "landmark" }, "geometry": { "type": "Point", "coordinates": [13.3904, 52.5075] } },
+    { "type": "Feature", "properties": { "name": "East Side Gallery", "kind": "landmark" }, "geometry": { "type": "Point", "coordinates": [13.4396, 52.505] } },
+    { "type": "Feature", "properties": { "name": "Unter den Linden", "kind": "street" }, "geometry": { "type": "LineString", "coordinates": [[13.3777, 52.5163], [13.389, 52.5172], [13.3975, 52.5178]] } },
+    { "type": "Feature", "properties": { "name": "Tiergarten (approx.)", "kind": "park" }, "geometry": { "type": "Polygon", "coordinates": [[[13.3365, 52.5145], [13.3755, 52.5155], [13.375, 52.5095], [13.341, 52.5085], [13.3365, 52.5145]]] } },
+    { "type": "Feature", "properties": { "name": "Tempelhofer Feld (approx.)", "kind": "park" }, "geometry": { "type": "Polygon", "coordinates": [[[13.39, 52.48], [13.42, 52.48], [13.42, 52.466], [13.39, 52.466], [13.39, 52.48]]] } }
+  ]
+}

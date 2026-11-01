@@ -1,0 +1,12 @@
+node_modules/
+dist/
+cdk.out/
+.local-tiles/
+.env
+.env.*
+*.log
+.DS_Store
+cdk-outputs.json
+.venv/
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,31 @@
+{
+  "name": "@mini-maps/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "TILE_STORE=fs TILE_ROOT=../../.local-tiles tsx watch --env-file-if-exists=.env src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "seed:local": "tsx scripts/seed-tiles.ts --input ../../data/sample/berlin-landmarks.geojson --tileset berlin-landmarks --layer landmarks --out ../../.local-tiles"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "fastify": "^5.12.7"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.20.5",
+    "geojson-vt": "^5.0.4",
+    "pino-pretty": "^13.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "~7.0.2",
+    "vitest": "^5.0.5",
+    "vt-pbf": "^3.1.3"
+  }
+}
