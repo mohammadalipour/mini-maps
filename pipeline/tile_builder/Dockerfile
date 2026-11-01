@@ -13,8 +13,10 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends libsqlite3-0 libstdc++6 zlib1g \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=tippecanoe /usr/local/bin/tippecanoe /usr/local/bin/tippecanoe
-RUN pip install --no-cache-dir boto3
+RUN pip install --no-cache-dir boto3 "psycopg[binary]"
 WORKDIR /app
-COPY build_tiles.py ./
+# RDS CA bundle, so database connections can use sslmode=verify-full.
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-ca.pem
+COPY schema.sql db_load.py build_tiles.py ./
 USER nobody
 ENTRYPOINT ["python", "/app/build_tiles.py"]

@@ -1,6 +1,7 @@
 """Step 2 (ECS Fargate task): GeoJSON in S3 -> vector tiles in S3, using tippecanoe.
 
-Environment: SOURCE_BUCKET, SOURCE_KEY, TILES_BUCKET, TILESET_ID, VERSION, LAYER (optional).
+Environment: SOURCE_BUCKET, SOURCE_KEY, TILES_BUCKET, TILESET_ID, VERSION, LAYER (optional),
+and optionally DB_* to also load features into PostGIS (see db_load.py).
 Writes tilesets/<id>/v<version>/{z}/{x}/{y}.mvt and, last, .../metadata.json.
 """
 import json
@@ -9,6 +10,8 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import db_load
 
 MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
 TILE_CACHE = "public, max-age=31536000, immutable"
@@ -71,7 +74,17 @@ def main() -> None:
     tiles, metadata = upload_plan(out_dir, f"tilesets/{tileset_id}/v{version}")
     with ThreadPoolExecutor(max_workers=32) as pool:
         list(pool.map(lambda t: s3.upload_file(str(t[0]), tiles_bucket, t[1], ExtraArgs=t[2]), tiles))
-    # metadata.json last: the publish step treats it as "all tiles are uploaded".
+
+    conn = db_load.connect_from_env(env)
+    if conn is None:
+        log("no database configured, skipping feature load")
+    else:
+        with conn:
+            db_load.apply_schema(conn)
+            count = db_load.load_version(conn, tileset_id, version, json.loads(source.read_text())["features"])
+        log("features loaded", tileset=tileset_id, version=version, features=count)
+
+    # metadata.json last: the publish step treats it as "tiles and features are ready".
     s3.upload_file(str(metadata[0]), tiles_bucket, metadata[1], ExtraArgs=metadata[2])
 
     log(

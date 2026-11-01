@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { S3Client } from '@aws-sdk/client-s3';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { PostgresFeatureStore, createPool } from './features/feature-store.js';
 import { FsTileStore } from './tiles/fs-tile-store.js';
 import { S3TileStore } from './tiles/s3-tile-store.js';
 
@@ -12,8 +14,14 @@ const tileStore =
     ? new S3TileStore(new S3Client({}), config.tileStore.bucket)
     : new FsTileStore(path.resolve(config.tileStore.root));
 
+const db = config.database;
+const featureStore = db
+  ? new PostgresFeatureStore(createPool({ ...db, ca: db.caFile ? readFileSync(db.caFile, 'utf8') : undefined }))
+  : undefined;
+
 const app = buildApp({
   tileStore,
+  featureStore,
   publicBaseUrl: config.publicBaseUrl,
   manifestCacheTtlMs: config.manifestCacheTtlMs,
   mapboxAccessToken: config.mapboxAccessToken,

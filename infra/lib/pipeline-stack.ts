@@ -15,6 +15,7 @@ import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
 import type { Construct } from 'constructs';
+import type { DatabaseStack } from './database-stack';
 
 export interface PipelineStackProps extends StackProps {
   readonly vpc: ec2.IVpc;
@@ -22,6 +23,8 @@ export interface PipelineStackProps extends StackProps {
   readonly tilesBucket: s3.IBucket;
   /** Optional email for pipeline failure alerts. */
   readonly alertEmail?: string;
+  /** When set, the tile builder also loads features into PostGIS. */
+  readonly database?: DatabaseStack;
 }
 
 const PIPELINE_DIR = path.join(__dirname, '../../pipeline');
@@ -82,11 +85,13 @@ export class PipelineStack extends Stack {
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
     });
+    const db = props.database?.containerConfig();
     const builderContainer = builderTask.addContainer('tile-builder', {
       image: ecs.ContainerImage.fromAsset(path.join(PIPELINE_DIR, 'tile_builder'), {
         platform: Platform.LINUX_AMD64,
       }),
-      environment: { TILES_BUCKET: tilesBucket.bucketName },
+      environment: { TILES_BUCKET: tilesBucket.bucketName, ...db?.environment },
+      secrets: db?.secrets,
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'tile-builder',
         logGroup: new logs.LogGroup(this, 'TileBuilderLogs', {
@@ -103,6 +108,7 @@ export class PipelineStack extends Stack {
       vpc,
       description: 'Tile builder tasks: outbound only',
     });
+    props.database?.allowConnectionsFrom(this, 'PostgresFromTileBuilder', builderSecurityGroup, 'Tile builder loads features');
 
     // --- State machine -------------------------------------------------------------------
     const notifyFailure = new tasks.SnsPublish(this, 'NotifyFailure', {

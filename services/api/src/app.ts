@@ -1,4 +1,5 @@
 import Fastify, { type FastifyError, type FastifyServerOptions } from 'fastify';
+import { type FeatureStore, parseBbox } from './features/feature-store.js';
 import type { TileStore, TilesetManifest } from './tiles/tile-store.js';
 import { TtlCache } from './ttl-cache.js';
 import { viewerHtml } from './viewer.js';
@@ -14,10 +15,14 @@ const TILEJSON_CACHE = 'public, max-age=60';
 
 const MVT_CONTENT_TYPE = 'application/vnd.mapbox-vector-tile';
 
+export const MAX_FEATURES = 1000;
+
 const tilesetIdSchema = { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,63}$' } as const;
 
 export interface AppOptions {
   tileStore: TileStore;
+  /** PostGIS-backed bbox queries; the endpoint answers 503 when not configured. */
+  featureStore?: FeatureStore;
   /** Base URL clients use to reach the API (the CloudFront domain in AWS). */
   publicBaseUrl?: string;
   manifestCacheTtlMs?: number;
@@ -29,6 +34,7 @@ export interface AppOptions {
 
 export function buildApp({
   tileStore,
+  featureStore,
   publicBaseUrl,
   manifestCacheTtlMs = 30_000,
   mapboxAccessToken,
@@ -41,6 +47,9 @@ export function buildApp({
     requestIdHeader: 'x-amz-cf-id',
   });
   const manifests = new TtlCache<TilesetManifest | null>(manifestCacheTtlMs);
+  const getManifest = (tilesetId: string) => manifests.getOrLoad(tilesetId, () => tileStore.getManifest(tilesetId));
+
+  app.addHook('onClose', async () => featureStore?.close());
 
   app.setErrorHandler((err: FastifyError, req, reply) => {
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
@@ -74,11 +83,49 @@ export function buildApp({
     },
     async (req, reply) => {
       const { tilesetId } = req.params;
-      const manifest = await manifests.getOrLoad(tilesetId, () => tileStore.getManifest(tilesetId));
+      const manifest = await getManifest(tilesetId);
       if (!manifest) return reply.code(404).header('cache-control', 'no-store').send({ message: 'Tileset not found' });
 
       reply.header('cache-control', TILEJSON_CACHE);
       return toTileJson(manifest, publicBaseUrl ?? `${req.protocol}://${req.host}`);
+    },
+  );
+
+  app.get<{ Params: { tilesetId: string }; Querystring: { bbox: string; limit: number } }>(
+    '/v1/tilesets/:tilesetId/features',
+    {
+      schema: {
+        params: { type: 'object', properties: { tilesetId: tilesetIdSchema }, required: ['tilesetId'] },
+        querystring: {
+          type: 'object',
+          properties: {
+            bbox: { type: 'string' },
+            limit: { type: 'integer', minimum: 1, maximum: MAX_FEATURES, default: 100 },
+          },
+          required: ['bbox'],
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!featureStore) {
+        return reply.code(503).header('cache-control', 'no-store').send({ message: 'Feature queries are not enabled' });
+      }
+      const bbox = parseBbox(req.query.bbox);
+      if (!bbox) {
+        return reply
+          .code(400)
+          .header('cache-control', 'no-store')
+          .send({ message: 'bbox must be west,south,east,north in degrees' });
+      }
+
+      const { tilesetId } = req.params;
+      const manifest = await getManifest(tilesetId);
+      if (!manifest) return reply.code(404).header('cache-control', 'no-store').send({ message: 'Tileset not found' });
+
+      // Query the version the manifest points to, so tiles and features always switch together.
+      const features = await featureStore.query({ tilesetId, version: manifest.version, bbox, limit: req.query.limit });
+      reply.header('cache-control', TILEJSON_CACHE).header('x-tileset-version', String(manifest.version));
+      return { type: 'FeatureCollection', features };
     },
   );
 

@@ -1,3 +1,5 @@
+import type { DatabaseConfig } from './features/feature-store.js';
+
 export type TileStoreConfig = { kind: 's3'; bucket: string } | { kind: 'fs'; root: string };
 
 export interface Config {
@@ -9,6 +11,8 @@ export interface Config {
   mapboxAccessToken?: string;
   defaultTileset?: string;
   tileStore: TileStoreConfig;
+  /** Set when DB_HOST is set. caFile is read by the server when DB_SSLMODE is not "disable". */
+  database?: Omit<DatabaseConfig, 'ca'> & { caFile?: string };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -21,6 +25,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mapboxAccessToken: env.MAPBOX_ACCESS_TOKEN,
     defaultTileset: env.DEFAULT_TILESET,
     tileStore: loadTileStoreConfig(env),
+    database: loadDatabaseConfig(env),
+  };
+}
+
+function loadDatabaseConfig(env: NodeJS.ProcessEnv): Config['database'] {
+  if (!env.DB_HOST) return undefined;
+  return {
+    host: env.DB_HOST,
+    port: Number(env.DB_PORT ?? 5432),
+    database: required(env, 'DB_NAME'),
+    user: required(env, 'DB_USER'),
+    password: required(env, 'DB_PASSWORD'),
+    caFile: env.DB_SSLMODE === 'disable' ? undefined : (env.DB_SSLROOTCERT ?? '/app/rds-ca.pem'),
   };
 }
 

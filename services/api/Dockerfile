@@ -13,6 +13,8 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+# RDS CA bundle, so the database connection verifies the server certificate.
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-ca.pem
 USER node
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

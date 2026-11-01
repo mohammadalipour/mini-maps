@@ -17,6 +17,10 @@ A small but complete version of a map tile platform: an ETL pipeline that turns 
      3. exit code == 0 ?
      4. Publish     Lambda (Python)         manifest.json via S3 conditional write
      any failure ──► SNS alert ──► Fail        CloudWatch alarm on failed executions ──► SNS
+
+                 ┌──────────────── spatial queries (optional) ───────┐
+ BuildTiles also loads features ──► RDS Postgres + PostGIS (per tileset + version)
+ GET /v1/tilesets/{id}/features?bbox=… ──► version from manifest ──► ST_Intersects ──► GeoJSON
 ```
 
 Design decisions are recorded in [docs/adr](docs/adr):
@@ -25,6 +29,7 @@ Design decisions are recorded in [docs/adr](docs/adr):
 - [0003](docs/adr/0003-cloudfront-vpc-origin.md) CloudFront VPC origin to an internal ALB, with no NAT gateway
 - [0004](docs/adr/0004-stacks-split-by-cost.md) Stacks split by cost profile
 - [0005](docs/adr/0005-tile-pipeline.md) Tile pipeline on Step Functions, Lambda and ECS
+- [0006](docs/adr/0006-postgis-feature-queries.md) PostGIS on RDS for bbox feature queries
 
 When an alert fires, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
@@ -34,16 +39,17 @@ When an alert fires, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
 |---|---|---|
 | `GET /v1/tilesets/{id}` | 60 s | TileJSON 3.0; tile URLs include the current version |
 | `GET /v1/tiles/{id}/{version}/{z}/{x}/{y}.mvt` | 1 year, immutable | `204` for empty tiles (5 min cache) |
+| `GET /v1/tilesets/{id}/features?bbox=w,s,e,n&limit=n` | 60 s | GeoJSON from PostGIS for the current version; `503` without a database |
 | `GET /health` | none | ALB health check |
 | `GET /viewer?tileset={id}` | none | Map page (Mapbox GL JS v3) for any tileset; `/` redirects here |
 
 ## Repository layout
 
 ```
-infra/                 CDK app (Network, Storage, Pipeline, Api stacks) + assertion tests
+infra/                 CDK app (Network, Storage, Database, Pipeline, Api stacks) + assertion tests
 services/api/          Node.js (Fastify) tile API, Dockerfile, tests, seed script
 pipeline/lambdas/      Python Lambdas: validate, publish
-pipeline/tile_builder/ Python + tippecanoe ECS task, Dockerfile
+pipeline/tile_builder/ Python + tippecanoe ECS task, PostGIS loader + schema, Dockerfile
 pipeline/tests/        pytest suite
 data/sample/           Small Berlin GeoJSON for local runs
 docs/                  ADRs and runbook
@@ -61,11 +67,19 @@ curl -o tile.mvt localhost:3000/v1/tiles/berlin-landmarks/1/12/2200/1343.mvt
 open http://localhost:3000/viewer   # paste a public Mapbox token (pk.…), or set MAPBOX_ACCESS_TOKEN
 ```
 
-Tests:
+With PostGIS (for `/features` and the integration tests):
+
+```bash
+docker compose up -d --wait postgis      # host port 55432
+# add to services/api/.env: DB_HOST=localhost DB_PORT=55432 DB_NAME=minimaps DB_USER=postgres DB_PASSWORD=postgres DB_SSLMODE=disable
+export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/minimaps
+```
+
+Tests (database tests are skipped without `TEST_DATABASE_URL`):
 
 ```bash
 (cd services/api && npm test)
-(cd pipeline && python3 -m venv .venv && .venv/bin/pip install boto3 pytest && .venv/bin/python -m pytest)
+(cd pipeline && python3 -m venv .venv && .venv/bin/pip install boto3 pytest "psycopg[binary]" && .venv/bin/python -m pytest)
 (cd infra && npm ci && npm test && npm run synth)
 ```
 
@@ -78,6 +92,7 @@ cd infra
 npx cdk bootstrap                         # once per account/region (eu-central-1 by default)
 npx cdk deploy MiniMaps-Network MiniMaps-Storage
 npx cdk deploy MiniMaps-Pipeline -c alertEmail=you@example.com   # builds the tippecanoe image
+# optional: add PostGIS (~$15/month) by passing -c database=true to every deploy
 npx cdk deploy MiniMaps-Api               # builds the ARM64 image; CloudFront takes ~5-10 min
 
 # Run the pipeline: upload GeoJSON (bucket names are in the Storage stack outputs)
@@ -104,6 +119,7 @@ cd infra && npx cdk destroy MiniMaps-Api
 | Network (VPC, S3 gateway endpoint) | $0 |
 | Storage (S3, small data) | cents |
 | Pipeline (Step Functions, Lambda, SNS, 1 alarm; Fargate per run) | ~$0 idle, < $0.01 per run |
+| Database (RDS t4g.micro, 20 GB, secret), optional | ~$15 |
 | Api (ALB + 1 Fargate ARM task 0.25 vCPU + 1 public IP) | ~$30 |
 
 There is no NAT gateway. Destroying `MiniMaps-Api` when it is not in use keeps the total to a few dollars.
@@ -113,7 +129,7 @@ There is no NAT gateway. Destroying `MiniMaps-Api` when it is not in use keeps t
 - [x] CDK skeleton, network, storage, CloudFront + ALB + Fargate API
 - [x] Tile API with versioned, immutable URLs; unit and infrastructure tests; CI
 - [x] Step Functions ETL: Python Lambdas + tippecanoe ECS task, SNS alerts, alarm, runbook
-- [ ] RDS Postgres/PostGIS: tileset catalog + `GET /v1/features?bbox=`
+- [x] RDS Postgres/PostGIS: features per version + `GET /v1/tilesets/{id}/features?bbox=`
 - [ ] CloudWatch: API EMF metrics, dashboard, latency/5xx alarms
 - [ ] GitHub Actions deploy with OIDC (no long-lived AWS keys)
 - [ ] k6 load test and results

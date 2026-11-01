@@ -9,10 +9,13 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
+import type { DatabaseStack } from './database-stack';
 
 export interface ApiStackProps extends StackProps {
   readonly vpc: ec2.IVpc;
   readonly tilesBucket: s3.IBucket;
+  /** When set, the API serves bbox feature queries from PostGIS. */
+  readonly database?: DatabaseStack;
 }
 
 const CONTAINER_PORT = 3000;
@@ -79,6 +82,7 @@ export class ApiStack extends Stack {
       },
     });
 
+    const db = props.database?.containerConfig();
     taskDefinition.addContainer('api', {
       image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../services/api'), {
         platform: Platform.LINUX_ARM64,
@@ -89,7 +93,9 @@ export class ApiStack extends Stack {
         TILE_STORE: 's3',
         TILES_BUCKET: tilesBucket.bucketName,
         PUBLIC_BASE_URL: publicBaseUrl,
+        ...db?.environment,
       },
+      secrets: db?.secrets,
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'api',
         logGroup: new logs.LogGroup(this, 'ApiLogs', {
@@ -111,6 +117,8 @@ export class ApiStack extends Stack {
       minHealthyPercent: 100,
       circuitBreaker: { rollback: true },
     });
+
+    props.database?.allowConnectionsFrom(this, 'PostgresFromApi', service.connections.securityGroups[0]!, 'API reads features');
 
     const listener = alb.addListener('Http', { port: 80, open: false });
     listener.addTargets('Api', {

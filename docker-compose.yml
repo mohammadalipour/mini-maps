@@ -1,0 +1,17 @@
+# Local PostGIS for development and integration tests:
+#   docker compose up -d postgis
+#   export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/minimaps
+services:
+  postgis:
+    image: postgis/postgis:17-3.6
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: minimaps
+    ports:
+      # 55432 on the host, so it does not clash with another local Postgres on 5432.
+      - "55432:5432"
+    healthcheck:
+      # TCP, not the socket: the image's first-start init server only listens on the socket.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d minimaps"]
+      interval: 2s
+      retries: 30
