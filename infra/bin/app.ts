@@ -34,13 +34,14 @@ new PipelineStack(app, 'MiniMaps-Pipeline', {
 });
 
 // On-demand stack: ALB + Fargate cost money per hour, so deploy it when working or demoing
-// and `cdk destroy MiniMaps-Api` afterwards.
+// and `cdk destroy MiniMaps-Api` afterwards. `-c cdn=false` skips CloudFront (ADR 0008).
 new ApiStack(app, 'MiniMaps-Api', {
   env,
   vpc: network.vpc,
   tilesBucket: storage.tilesBucket,
   database,
   alertEmail: app.node.tryGetContext('alertEmail'),
+  cdn: ![false, 'false'].includes(app.node.tryGetContext('cdn')),
 });
 
 Tags.of(app).add('project', 'mini-maps');

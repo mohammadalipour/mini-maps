@@ -12,7 +12,8 @@ export interface ApiMonitoringProps {
   readonly alb: elbv2.ApplicationLoadBalancer;
   readonly targetGroup: elbv2.ApplicationTargetGroup;
   readonly service: ecs.FargateService;
-  readonly distribution: cloudfront.Distribution;
+  /** Absent when the API runs without a CDN; the dashboard then has no CloudFront graph. */
+  readonly distribution?: cloudfront.Distribution;
   /** Namespace the API publishes per-route metrics to (services/api/src/metrics). */
   readonly metricsNamespace: string;
   readonly alertEmail?: string;
@@ -54,11 +55,11 @@ export class ApiMonitoring extends Construct {
       period: MINUTE,
     });
 
-    const cloudFrontMetric = (metricName: string, statistic: string) =>
+    const cloudFrontMetric = (distributionId: string, metricName: string, statistic: string) =>
       new cloudwatch.Metric({
         namespace: 'AWS/CloudFront',
         metricName,
-        dimensionsMap: { DistributionId: distribution.distributionId, Region: 'Global' },
+        dimensionsMap: { DistributionId: distributionId, Region: 'Global' },
         region: 'us-east-1',
         statistic,
         period: MINUTE,
@@ -117,9 +118,17 @@ export class ApiMonitoring extends Construct {
       widgets: [
         [new cloudwatch.AlarmStatusWidget({ title: 'Alarms', alarms, width: 24, height: 3 })],
         [
-          graph('CloudFront: requests and 5xx %', [cloudFrontMetric('Requests', 'Sum')], [cloudFrontMetric('5xxErrorRate', 'Average')]),
-          graph('ALB: latency (s)', [p50Latency, p99Latency]),
-          graph('ALB: requests and 5xx %', [requests], [errorRate]),
+          ...(distribution
+            ? [
+                graph(
+                  'CloudFront: requests and 5xx %',
+                  [cloudFrontMetric(distribution.distributionId, 'Requests', 'Sum')],
+                  [cloudFrontMetric(distribution.distributionId, '5xxErrorRate', 'Average')],
+                ),
+              ]
+            : []),
+          graph('ALB: latency (s)', [p50Latency, p99Latency], [], distribution ? 8 : 12),
+          graph('ALB: requests and 5xx %', [requests], [errorRate], distribution ? 8 : 12),
         ],
         [
           graph('API: p99 latency by route (ms)', routeMetric('Latency', 'p99')),

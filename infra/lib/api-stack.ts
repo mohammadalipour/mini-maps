@@ -20,6 +20,11 @@ export interface ApiStackProps extends StackProps {
   readonly database?: DatabaseStack;
   /** Optional email for API alarms. */
   readonly alertEmail?: string;
+  /**
+   * Put CloudFront in front of an internal ALB (default). When false, the ALB is public and
+   * serves clients directly over HTTP: for accounts where CloudFront isn't available (ADR 0008).
+   */
+  readonly cdn?: boolean;
 }
 
 const CONTAINER_PORT = 3000;
@@ -30,51 +35,39 @@ const METRICS_NAMESPACE = 'MiniMaps/Api';
  *
  * The ALB is internal, so the only way in from the internet is through CloudFront.
  * See docs/adr/0003 for why this replaces a public ALB + secret header.
+ * With `cdn: false` it is public ALB -> Fargate -> S3 instead (docs/adr/0008).
  */
 export class ApiStack extends Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
     const { vpc, tilesBucket } = props;
 
+    const cdn = props.cdn ?? true;
+
     const albSecurityGroup = new ec2.SecurityGroup(this, 'AlbSecurityGroup', {
       vpc,
-      description: 'Internal ALB, reached only by the CloudFront VPC origin',
+      description: cdn ? 'Internal ALB, reached only by the CloudFront VPC origin' : 'Public ALB (no CDN)',
       allowAllOutbound: false,
     });
-    // VPC origin traffic arrives from CloudFront-managed ENIs inside this VPC.
-    albSecurityGroup.addIngressRule(ec2.Peer.ipv4(vpc.vpcCidrBlock), ec2.Port.tcp(80), 'CloudFront VPC origin');
+    if (cdn) {
+      // VPC origin traffic arrives from CloudFront-managed ENIs inside this VPC.
+      albSecurityGroup.addIngressRule(ec2.Peer.ipv4(vpc.vpcCidrBlock), ec2.Port.tcp(80), 'CloudFront VPC origin');
+    } else {
+      albSecurityGroup.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Clients (no CDN)');
+    }
 
     const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       vpc,
-      internetFacing: false,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      internetFacing: !cdn,
+      vpcSubnets: { subnetType: cdn ? ec2.SubnetType.PRIVATE_ISOLATED : ec2.SubnetType.PUBLIC },
       securityGroup: albSecurityGroup,
     });
 
-    const distribution = new cloudfront.Distribution(this, 'Cdn', {
-      comment: 'Mini Maps API',
-      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
-      defaultBehavior: {
-        origin: origins.VpcOrigin.withApplicationLoadBalancer(alb, {
-          // Traffic stays on the AWS network; add HTTPS here once there is a domain + ACM cert.
-          protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
-        }),
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
-        compress: true,
-        // The API decides cache lifetimes via Cache-Control; CloudFront just honours them.
-        cachePolicy: new cloudfront.CachePolicy(this, 'OriginControlledCache', {
-          comment: 'Mini Maps: cache per origin Cache-Control',
-          defaultTtl: Duration.seconds(0),
-          minTtl: Duration.seconds(0),
-          maxTtl: Duration.days(365),
-          queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
-          enableAcceptEncodingGzip: true,
-          enableAcceptEncodingBrotli: true,
-        }),
-      },
-    });
-    const publicBaseUrl = `https://${distribution.distributionDomainName}`;
+    const distribution = cdn ? this.createDistribution(alb) : undefined;
+    // Without a CDN there is no domain or certificate yet, so clients use plain HTTP.
+    const publicBaseUrl = distribution
+      ? `https://${distribution.distributionDomainName}`
+      : `http://${alb.loadBalancerDnsName}`;
 
     const cluster = new ecs.Cluster(this, 'Cluster', { vpc });
 
@@ -160,5 +153,30 @@ export class ApiStack extends Stack {
     });
 
     new CfnOutput(this, 'ApiUrl', { value: publicBaseUrl });
+  }
+  private createDistribution(alb: elbv2.ApplicationLoadBalancer): cloudfront.Distribution {
+    return new cloudfront.Distribution(this, 'Cdn', {
+      comment: 'Mini Maps API',
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      defaultBehavior: {
+        origin: origins.VpcOrigin.withApplicationLoadBalancer(alb, {
+          // Traffic stays on the AWS network; add HTTPS here once there is a domain + ACM cert.
+          protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+        }),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+        compress: true,
+        // The API decides cache lifetimes via Cache-Control; CloudFront just honours them.
+        cachePolicy: new cloudfront.CachePolicy(this, 'OriginControlledCache', {
+          comment: 'Mini Maps: cache per origin Cache-Control',
+          defaultTtl: Duration.seconds(0),
+          minTtl: Duration.seconds(0),
+          maxTtl: Duration.days(365),
+          queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
+          enableAcceptEncodingGzip: true,
+          enableAcceptEncodingBrotli: true,
+        }),
+      },
+    });
   }
 }

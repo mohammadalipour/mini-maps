@@ -31,6 +31,7 @@ Design decisions are recorded in [docs/adr](docs/adr):
 - [0005](docs/adr/0005-tile-pipeline.md) Tile pipeline on Step Functions, Lambda and ECS
 - [0006](docs/adr/0006-postgis-feature-queries.md) PostGIS on RDS for bbox feature queries
 - [0007](docs/adr/0007-api-observability.md) API observability: ALB alarms, per-route metrics, dashboard
+- [0008](docs/adr/0008-optional-cdn.md) CloudFront is optional (`-c cdn=false`) for accounts without CloudFront access
 
 When an alert fires, see [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
@@ -95,6 +96,8 @@ npx cdk deploy MiniMaps-Network MiniMaps-Storage
 npx cdk deploy MiniMaps-Pipeline -c alertEmail=you@example.com   # builds the tippecanoe image
 # optional: add PostGIS (~$15/month) by passing -c database=true to every deploy
 npx cdk deploy MiniMaps-Api               # builds the ARM64 image; CloudFront takes ~5-10 min
+# no CloudFront on the account? deploy a public ALB instead (HTTP, no edge cache; ADR 0008)
+npx cdk deploy MiniMaps-Api -c cdn=false
 
 # Run the pipeline: upload GeoJSON (bucket names are in the Storage stack outputs)
 aws s3 cp ../data/sample/berlin-landmarks.geojson s3://<RawBucketName>/uploads/berlin-landmarks.geojson
@@ -104,7 +107,7 @@ cd ../services/api
 npx tsx scripts/seed-tiles.ts --input ../../data/sample/berlin-landmarks.geojson \
   --tileset berlin-landmarks --layer landmarks --bucket <TilesBucketName>
 
-curl https://<ApiUrl>/v1/tilesets/berlin-landmarks
+curl <ApiUrl>/v1/tilesets/berlin-landmarks
 ```
 
 When you are done:
@@ -132,6 +135,7 @@ There is no NAT gateway. Destroying `MiniMaps-Api` when it is not in use keeps t
 - [x] Step Functions ETL: Python Lambdas + tippecanoe ECS task, SNS alerts, alarm, runbook
 - [x] RDS Postgres/PostGIS: features per version + `GET /v1/tilesets/{id}/features?bbox=`
 - [x] CloudWatch: per-route API metrics, `MiniMaps-Api` dashboard, latency / 5xx / health alarms → SNS
+- [x] Optional CDN (`-c cdn=false`): public ALB when CloudFront isn't available
 - [ ] GitHub Actions deploy with OIDC (no long-lived AWS keys)
 - [ ] k6 load test and results
 - [x] Map viewer page (Mapbox GL JS v3, Standard style, tile boundaries toggle)
