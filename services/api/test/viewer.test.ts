@@ -38,4 +38,11 @@ describe('viewer page', () => {
     const html = viewerHtml({ defaultTileset: '</script><script>alert(1)</script>' });
     expect(inlineScript(html)).toContain('\\u003c/script>');
   });
+
+  it('keeps the token form hidden unless the script shows it', () => {
+    const html = viewerHtml({ defaultTileset: 'berlin' });
+    expect(html).toMatch(/<form id="token-form" hidden>/);
+    // A plain `form { display: ... }` rule would beat the hidden attribute and always show it.
+    expect(html).not.toMatch(/form\s*\{[^}]*display/);
+  });
 });

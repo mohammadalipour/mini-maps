@@ -29,7 +29,8 @@ const PAGE = `<!doctype html>
            border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.25); max-width: 300px; }
   .panel h1 { font-size: 15px; margin: 0 0 6px; }
   .panel .muted { color: #666; font-size: 12px; }
-  .panel form { display: flex; gap: 6px; margin-top: 8px; }
+  /* :not([hidden]): author CSS would otherwise override the hidden attribute. */
+  .panel form:not([hidden]) { display: flex; gap: 6px; margin-top: 8px; }
   .panel input[type=text] { flex: 1; min-width: 0; }
   .popup td { padding: 1px 6px 1px 0; vertical-align: top; }
   .popup td:first-child { color: #666; }
